@@ -1,12 +1,14 @@
 -- RPS Controls
 local adjustedThrottle = 0
-local RPS_microAdjustment1 = 0.000008
-local RPS_microAdjustment2 = 0.000005
-local RPS_microAdjustment3 = 0.000002
+local RPS_microAdjustment0 = 0.000005
+local RPS_microAdjustment1 = 0.000003
+local RPS_microAdjustment2 = 0.000001
+local RPS_microAdjustment3 = 0.0000004
+local RPS_deadband0 = 5
 local RPS_deadband1 = 1
 local RPS_deadband2 = 0.4
 local RPS_deadband3 = 0.1
-local RPS_Values = newNumberCollector(20)
+local RPS_Values = newNumberCollector(50)
 local Throttle_Values = newNumberCollector(10)
 local RPS_to_Throttle_values = { 
     [5] = 0.185, 
@@ -16,7 +18,7 @@ local RPS_to_Throttle_values = {
     [9] = 0.191, 
     [10] = 0.193 
 }
-RPS_to_Throttle_boost = 1.10
+RPS_to_Throttle_boost = 1.05
 local RPS_to_Throttle_setup_count = 0
 
 local Throttle_ticks = 0
@@ -43,45 +45,59 @@ function stabilizeIdleRPS()
         init = function(idleRPS)
             if RPS_to_Throttle_setup_count == 0 then
                 RPS_to_Throttle_setup_count = 1
-                adjustedThrottleCounter = newUpDownCounter(RPS_to_Throttle_values[idleRPS] * RPS_to_Throttle_boost,  0.0000001, 1, 0.00004)
+                adjustedThrottleCounter = newUpDownCounter(RPS_to_Throttle_values[idleRPS] * RPS_to_Throttle_boost,  0.0000001, 1, 0.000008)
             end
         end,
         stabilizeIdle = function(currentRPS, targetRPS)
+            local Throttle_adjusted =  false
             local stabilizationFactor = 0.05
             Throttle_ticks = Throttle_ticks + 1
             local deadbandLevels = {
                 {range = RPS_deadband3, adjustment = RPS_microAdjustment3, name = "deadband3"},
                 {range = RPS_deadband2, adjustment = RPS_microAdjustment2, name = "deadband2"},
-                {range = RPS_deadband1, adjustment = RPS_microAdjustment1, name = "deadband1"}
+                {range = RPS_deadband1, adjustment = RPS_microAdjustment1, name = "deadband1"},
+                {range = RPS_deadband0, adjustment = RPS_microAdjustment0, name = "deadband0"}
             }
+
+            -- Record RPS Values for trends
+            --RPS_Values.addNumber(RPS_Values, currentRPS)
         
             -- Check which deadband the current RPS falls into
             for _, level in ipairs(deadbandLevels) do
                 local deltaRPS = math.abs(currentRPS - targetRPS)
+                --local avgRPS = RPS_Values.getAverage(RPS_Values)
                 if deltaRPS <= level.range then
                     -- Avoid oscillation within the stabilization factor
                     if deltaRPS > stabilizationFactor then
                         if currentRPS < targetRPS then
+                            -- Normal operation
                             adjustedThrottleCounter.microAdjustmentUp(adjustedThrottleCounter, level.adjustment)
                         elseif currentRPS > targetRPS then
-                            adjustedThrottleCounter.microAdjustmentDown(adjustedThrottleCounter, level.adjustment)
+                            adjustedThrottleCounter.microAdjustmentDown(adjustedThrottleCounter, level.adjustment * 2)
                         end
+                        Throttle_adjusted = true
                     end
-        
+
                     -- Record RPS and Throttle Values for trends
-                    RPS_Values.addNumber(RPS_Values, currentRPS)
                     Throttle_Values.addNumber(Throttle_Values, adjustedThrottleCounter.getValue(adjustedThrottleCounter))
         
                     -- Set adjusted throttle based on average or fallback
-                    adjustedThrottleCounter.setValue(adjustedThrottleCounter, Throttle_Values.getAverage(Throttle_Values) or RPS_to_Throttle_values[idleRPS])
-                    adjustedThrottle = adjustedThrottleCounter.getValue(adjustedThrottleCounter)
+                    if level.range == RPS_deadband2 or level.range == RPS_deadband3 then
+                        adjustedThrottleCounter.setValue(adjustedThrottleCounter, Throttle_Values.getAverage(Throttle_Values))
+                    end
+        
                     break -- Exit loop after finding the applicable deadband
                 end
+            end
+
+            -- Check to see if we are out of startup phase AVG Throttle should be near Idle RPS
+            if Throttle_Values.getAverage(Throttle_Values) - RPS_to_Throttle_values[idleRPS] > 0.01 then
+                electricEngine = 1
             end
             
             -- Give the ENG time to start up given the preset throttle value
             -- Handle cases outside the deadbands
-            if Throttle_ticks > 240 then
+            if Throttle_ticks > 1000 and not Throttle_adjusted then
                 if currentRPS > targetRPS then
                     adjustedThrottleCounter.decrement(adjustedThrottleCounter)
                 elseif currentRPS < targetRPS then
@@ -96,7 +112,7 @@ function stabilizeIdleRPS()
                 throttle = adjustedThrottle,
                 electricEngine = electricEngine,
                 minIdleThrottle = Throttle_Values.getAverage(Throttle_Values),
-                rpsAVG = RPS_Values.getAverage(RPS_Values)
+                rpsAVG = Throttle_Values.getAverage(Throttle_Values)
             }
         end
     }

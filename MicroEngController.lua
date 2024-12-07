@@ -79,7 +79,6 @@ local minIdleThrottle = 0.1
 local maxRPS = 20
 local Stabilize = stabilizeIdleRPS()
 local engTemp = 0
-local rpsAVGData = 0
 
 local CC_drive_ready = false
 
@@ -139,17 +138,16 @@ function onTick()
             throttleData = Stabilize.stabilizeIdle(engRPS, idleRPS)
             throttleOutput = throttleData.throttle
             minIdleThrottle = throttleData.minIdleThrottle
-            if throttleData.rpsAVG > idleRPS then
+            output.setNumber(11, throttleData.rpsAVG)
+            if throttleData.rpsAVG >= idleRPS then
                 CC_drive_ready = true
             end
         else
             throttleData = throttleController(minIdleThrottle, effectiveRPS, maxRPS, throttle, maxThrottleValue)
             throttleOutput = throttleData.throttleOutput
             maxThrottleValue = throttleData.maxThrottleValue
-            output.setNumber(11, maxThrottleValue)
         end
 
-    
         -- Fuel and Air Flow Adjustment
         fuelFlowOutput = updateAFRControl(propAFR, airFlowOutput)
         airFlowOutput = throttleOutput
