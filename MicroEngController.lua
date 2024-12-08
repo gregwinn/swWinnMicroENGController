@@ -103,7 +103,7 @@ function onTick()
     -- 2: ENG RPS
     engRPS = input.getNumber(2)
     -- 3: Proparty: Idle RPS (5 to 10)
-    idleRPS = round(input.getNumber(3))
+    idleRPS = input.getNumber(3)
     -- 4: Throttle
     throttle = input.getNumber(4)
     -- 5: Air Volume
@@ -129,21 +129,15 @@ function onTick()
         engineStarterEngaged = actionStartEngine(engRPS)
         output.setBool(1, engineStarterEngaged)
     
-        -- Electric Assist Logic
-        local effectiveRPS = engRPS
-    
         if throttle == 0 then
             -- Use stabilizeIdleRPS only when user throttle is 0
-            Stabilize.init(idleRPS)
             throttleData = Stabilize.stabilizeIdle(engRPS, idleRPS)
             throttleOutput = throttleData.throttle
             minIdleThrottle = throttleData.minIdleThrottle
             output.setNumber(11, throttleData.rpsAVG)
-            if throttleData.rpsAVG >= idleRPS then
-                CC_drive_ready = true
-            end
+            
         else
-            throttleData = throttleController(minIdleThrottle, effectiveRPS, maxRPS, throttle, maxThrottleValue)
+            throttleData = throttleController(minIdleThrottle, engRPS, maxRPS, throttle, maxThrottleValue)
             throttleOutput = throttleData.throttleOutput
             maxThrottleValue = throttleData.maxThrottleValue
         end
