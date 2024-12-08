@@ -74,13 +74,9 @@ local ticks = 0
 local fuelFlowOutput = 0
 local airFlowOutput = 0
 local throttleOutput = 0.01
-local maxThrottleValue = 1
-local minIdleThrottle = 0.1
 local maxRPS = 20
-local Stabilize = stabilizeIdleRPS()
 local engTemp = 0
-
-local CC_drive_ready = false
+local mainClutchOutput = 0
 
 function onTick()
     -- Outputs
@@ -89,6 +85,7 @@ function onTick()
     -- 3: Fuel Flow (number)
     -- 4: Air Flow (number)
     -- 6: To Cooling Pumps/Fan (boolean)
+    -- 7: To Main Clutch (number)
     -- 8: To Clutch Controller
         -- 30: ENG RPS (number)
         -- 31: ENG Temp (number)
@@ -118,6 +115,7 @@ function onTick()
     startCoolingTemp = input.getNumber(9)
     -- 30: Reserved for Clutch Info
     -- 31: Reserved for Clutch Info
+    -- 32: Reserved for Clutch Info
 
     ticks = ticks + 1
 
@@ -130,18 +128,14 @@ function onTick()
         output.setBool(1, engineStarterEngaged)
     
         if throttle == 0 then
-            -- Use stabilizeIdleRPS only when user throttle is 0
-            throttleData = Stabilize.stabilizeIdle(engRPS, idleRPS)
+            throttleData = throttleController(engRPS, idleRPS, true)
             throttleOutput = throttleData.throttle
-            minIdleThrottle = throttleData.minIdleThrottle
-            output.setNumber(11, throttleData.rpsAVG)
-            
         else
-            throttleData = throttleController(minIdleThrottle, engRPS, maxRPS, throttle, maxThrottleValue)
-            throttleOutput = throttleData.throttleOutput
-            maxThrottleValue = throttleData.maxThrottleValue
+            local throttleToRPS = clamp(throttle * maxRPS, idleRPS, maxRPS) or idleRPS
+            throttleData = throttleController(engRPS, throttleToRPS, false)
+            throttleOutput = throttleData.throttle
+            output.setNumber(11, throttleToRPS)
         end
-
         -- Fuel and Air Flow Adjustment
         fuelFlowOutput = updateAFRControl(propAFR, airFlowOutput)
         airFlowOutput = throttleOutput
@@ -150,6 +144,16 @@ function onTick()
         output.setNumber(3, fuelFlowOutput)
         output.setNumber(4, airFlowOutput)
 
+        -- Main Clutch Logic
+        if engRPS >= (idleRPS - 1) and not engineStarterEngaged then
+            mainClutchOutput = actionClutch(mainClutchOutput, 0, {
+                Kp = 0.1,
+                Ki = 0,
+                Kd = 0,
+            })
+        end
+        output.setNumber(7, mainClutchOutput)
+
         -- Cooling Logic
         if engTemp > startCoolingTemp then
             output.setBool(6, true)
@@ -157,19 +161,18 @@ function onTick()
             output.setBool(6, false)
         end
 
-        -- Clutch
-        output.setNumber(30, engRPS)
-        output.setNumber(31, engTemp)
-        output.setBool(32, CC_drive_ready)
     else
         -- Engine Off Logic
         fuelFlowOutput, airFlowOutput = 0, 0
         throttleOutput = 0.01
-        CC_drive_ready = false
         output.setNumber(3, 0)
         output.setNumber(4, 0)
     end
-    
+
+    -- Clutch
+    output.setNumber(30, engRPS)
+    output.setNumber(31, idleRPS)
+    output.setNumber(32, throttle)
 end
 
 
